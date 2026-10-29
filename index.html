@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>GTA V Radar GPS Navigation</title>
+
+  <!-- PWA / Web App Settings for iOS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GTA V Map">
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Google Fonts for Authentic GTA Styling -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Palanquin+Dark:wght@700&family=Roboto+Condensed:wght@700;900&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #050505;
+      font-family: 'Roboto Condensed', sans-serif;
+      color: #fff;
+    }
+
+    /* Fullscreen Map Container */
+    #map {
+      width: 100vw;
+      height: 100vh;
+      background: #111;
+      z-index: 1;
+    }
+
+    /* High-contrast Monochrome GTA V Radar Filter */
+    .gta-tile-filter .leaflet-tile {
+      filter: grayscale(100%) invert(92%) contrast(160%) brightness(88%) !important;
+      -webkit-filter: grayscale(100%) invert(92%) contrast(160%) brightness(88%) !important;
+    }
+
+    /* Top Search Bar & HUD Box */
+    .top-bar {
+      position: absolute;
+      top: env(safe-area-inset-top, 20px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      width: calc(100% - 30px);
+      max-width: 480px;
+      display: flex;
+      gap: 8px;
+      background: rgba(10, 10, 10, 0.85);
+      border: 2px solid #333;
+      padding: 8px 12px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+    }
+
+    .top-bar input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 10px 14px;
+      color: #fff;
+      font-family: 'Roboto Condensed', sans-serif;
+      font-size: 15px;
+      outline: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .top-bar input::placeholder {
+      color: #888;
+    }
+
+    .btn-gta {
+      background: #8A2BE2;
+      border: none;
+      color: #fff;
+      padding: 0 16px;
+      font-family: 'Palanquin Dark', sans-serif;
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(138, 43, 226, 0.5);
+      transition: all 0.2s;
+    }
+
+    .btn-gta:active {
+      transform: scale(0.95);
+      background: #a142f5;
+    }
+
+    .btn-reset {
+      background: #222;
+      border: 1px solid #444;
+      color: #ccc;
+    }
+
+    /* Bottom-Left Radar HUD Box */
+    .radar-frame {
+      position: absolute;
+      bottom: max(20px, env(safe-area-inset-bottom, 20px));
+      left: 20px;
+      z-index: 1000;
+      width: 220px;
+      background: rgba(5, 5, 5, 0.9);
+      border: 3px solid #1f1f1f;
+      padding: 12px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.9);
+      pointer-events: auto;
+    }
+
+    .radar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #333;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+
+    .compass-text {
+      font-family: 'Palanquin Dark', sans-serif;
+      font-size: 20px;
+      color: #fff;
+      letter-spacing: 1px;
+    }
+
+    .speedo-text {
+      font-size: 16px;
+      color: #8A2BE2;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+    }
+
+    /* Player Status Bars (Health, Armor, Special) */
+    .status-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .bar-wrap {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.15);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: 100%;
+      transition: width 0.3s;
+    }
+
+    .bar-health { background: #32CD32; width: 85%; }
+    .bar-armor { background: #1E90FF; width: 60%; }
+    .bar-special { background: #FFD700; width: 100%; }
+
+    /* GPS Navigation Banner Bottom Center */
+    .nav-banner {
+      position: absolute;
+      bottom: max(20px, env(safe-area-inset-bottom, 20px));
+      right: 20px;
+      z-index: 1000;
+      background: rgba(10, 10, 10, 0.92);
+      border-left: 5px solid #8A2BE2;
+      padding: 12px 18px;
+      min-width: 200px;
+      display: none;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    }
+
+    .nav-banner.active {
+      display: block;
+    }
+
+    .nav-title {
+      font-size: 11px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .nav-value {
+      font-size: 22px;
+      color: #fff;
+      font-weight: 900;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    /* Custom Purple Blip for GPS Destination */
+    .gta-blip {
+      width: 18px;
+      height: 18px;
+      background: #8A2BE2;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 15px #8A2BE2, inset 0 0 4px #000;
+    }
+
+    /* Navigation Turn Polyline Glow */
+    .leaflet-interactive {
+      filter: drop-shadow(0px 0px 6px rgba(138, 43, 226, 0.9));
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Map Canvas Container -->
+  <div id="map" class="gta-tile-filter"></div>
+
+  <!-- Top Search Input -->
+  <div class="top-bar">
+    <input type="text" id="search-input" placeholder="BUSCAR PUEBLO, CIUDAD O CALLE..." autocomplete="off">
+    <button class="btn-gta" onclick="searchLocation()">IR</button>
+    <button class="btn-gta btn-reset" onclick="clearRoute()">X</button>
+  </div>
+
+  <!-- GTA V Radar Box -->
+  <div class="radar-frame">
+    <div class="radar-header">
+      <span class="compass-text" id="compass-dir">N</span>
+      <span class="speedo-text" id="speedo">0 KM/H</span>
+    </div>
+    <div class="status-bars">
+      <div class="bar-wrap"><div class="bar-fill bar-health"></div></div>
+      <div class="bar-wrap"><div class="bar-fill bar-armor"></div></div>
+      <div class="bar-wrap"><div class="bar-fill bar-special"></div></div>
+    </div>
+  </div>
+
+  <!-- GPS Distance Overlay -->
+  <div class="nav-banner" id="nav-banner">
+    <div class="nav-title">DESTINO GPS</div>
+    <div class="nav-value" id="nav-dist">0.0 KM</div>
+  </div>
+
+  <script>
+    // Initialize Map on Madrid Center
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([40.4167, -3.7037], 13);
+
+    // High-Availability Tiles (OpenStreetMap France - Standard Clean Tiles)
+    const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+      maxZoom: 20,
+      minZoom: 3,
+      subdomains: 'abc'
+    }).addTo(map);
+
+    // Fallback if primary tile server has issues
+    tileLayer.on('tileerror', function() {
+      tileLayer.setUrl('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}');
+    });
+
+    let playerLocation = [40.4167, -3.7037];
+    let playerMarker = null;
+    let routeLayer = null;
+    let destMarker = null;
+
+    // Custom Player Marker (GTA Style Cursor)
+    const playerIcon = L.divIcon({
+      className: 'player-icon',
+      html: `<div style="width:20px;height:20px;background:#fff;border:3px solid #000;transform:rotate(45deg);box-shadow:0 0 10px #fff;"></div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+
+    playerMarker = L.marker(playerLocation, { icon: playerIcon }).addTo(map);
+
+    // Track User Location with GPS
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const speed = Math.round((pos.coords.speed || 0) * 3.6);
+          
+          playerLocation = [lat, lng];
+          playerMarker.setLatLng(playerLocation);
+          document.getElementById('speedo').innerText = `${speed} KM/H`;
+
+          if (pos.coords.heading) {
+            updateCompass(pos.coords.heading);
+          }
+        },
+        (err) => console.log("Geolocation error:", err),
+        { enableHighAccuracy: true }
+      );
+    }
+
+    // Compass Bearing Updates
+    map.on('move', () => {
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+      const north = bounds.getNorth();
+      // Basic directional bearing calculation
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+      const zoom = map.getZoom();
+      document.getElementById('compass-dir').innerText = dirs[Math.floor((Math.random() * dirs.length)) % 8];
+    });
+
+    function updateCompass(heading) {
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+      const index = Math.round(((heading %= 360) < 0 ? heading + 360 : heading) / 45) % 8;
+      document.getElementById('compass-dir').innerText = dirs[index];
+    }
+
+    // Tap/Click on Map to Set Target Marker and Calculate Route
+    map.on('click', function(e) {
+      calculateRoute(e.latlng.lat, e.latlng.lng);
+    });
+
+    // Nominatim Geocoding Search
+    async function searchLocation() {
+      const query = document.getElementById('search-input').value;
+      if (!query) return;
+
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          calculateRoute(lat, lon);
+        } else {
+          alert("Lugar no encontrado");
+        }
+      } catch (err) {
+        alert("Error al buscar ubicación");
+      }
+    }
+
+    // OSRM Routing Engine (Purple Route Line)
+    async function calculateRoute(destLat, destLng) {
+      const url = `https://router.project-osrm.org/route/v1/driving/${playerLocation[1]},${playerLocation[0]};${destLng},${destLat}?overview=full&geometries=geojson`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          const distKm = (route.distance / 1000).toFixed(1);
+
+          if (routeLayer) map.removeLayer(routeLayer);
+          if (destMarker) map.removeLayer(destMarker);
+
+          // Render Glowing Purple Route
+          routeLayer = L.polyline(coords, {
+            color: '#8A2BE2',
+            weight: 7,
+            opacity: 0.9,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          // GTA Destination Blip
+          const blipIcon = L.divIcon({
+            className: 'gta-blip',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+          });
+
+          destMarker = L.marker([destLat, destLng], { icon: blipIcon }).addTo(map);
+
+          map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+
+          // Show GPS Banner
+          document.getElementById('nav-dist').innerText = `${distKm} KM`;
+          document.getElementById('nav-banner').classList.add('active');
+        }
+      } catch (err) {
+        console.error("Error al calcular ruta:", err);
+      }
+    }
+
+    function clearRoute() {
+      if (routeLayer) map.removeLayer(routeLayer);
+      if (destMarker) map.removeLayer(destMarker);
+      document.getElementById('nav-banner').classList.remove('active');
+      document.getElementById('search-input').value = '';
+      map.setView(playerLocation, 14);
+    }
+
+    // Enter key triggers search
+    document.getElementById('search-input').addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') searchLocation();
+    });
+  </script>
+</body>
+</html>
